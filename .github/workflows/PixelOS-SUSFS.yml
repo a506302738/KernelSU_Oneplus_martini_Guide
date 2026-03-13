@@ -77,11 +77,10 @@ jobs:
       - name: Setup KernelSU
         if: github.event.inputs.KERNELSU_CONFIG == 'true'
         run: |
-          cd $GITHUB_WORKSPACE/kernel
-          git clone https://github.com/natsumerinchan/KernelSU.git KernelSU
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "${{ github.event.inputs.KERNELSU_TAG }}"
-          scripts/config --file "arch/arm64/configs/${{ github.event.inputs.KERNEL_DEFCONFIG }}" -e MODULES -e KPROBES -e HAVE_KPROBES -e KPROBE_EVENTS
-
+           cd $GITHUB_WORKSPACE/kernel
+           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.KERNELSU_TAG }}"
+           scripts/config --file "arch/arm64/configs/${{ github.event.inputs.KERNEL_DEFCONFIG }}" -e MODULES -e KPROBES -e HAVE_KPROBES -e KPROBE_EVENTS
+      
       - name: Make kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel
