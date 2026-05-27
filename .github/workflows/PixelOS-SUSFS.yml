@@ -29,7 +29,7 @@ on:
           description: 'Compile KernelSU'
           required: true
           default: true
-          type: boolean          
+          type: boolean
         CCACHE_CONFIG:
           description: 'Use Ccache'
           required: true
@@ -60,12 +60,22 @@ jobs:
         if: github.event.inputs.CCACHE_CONFIG == 'true'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: PixelOS-inline
+          key: PixelOS-SUSFS-inline
+
+      - name: Cache proton-clang toolchain
+        id: cache-clang
+        uses: actions/cache@v4
+        with:
+          path: ~/clang
+          key: proton-clang-${{ runner.os }}
 
       - name: Setup Environment
         run: |
-          export CLANG_PATH=~/clang
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang $CLANG_PATH
+          # Clone proton-clang only if not restored from cache
+          if [ ! -d ~/clang/bin ]; then
+            git clone --depth=1 https://github.com/kdrag0n/proton-clang ~/clang
+          fi
+          # Install build dependencies
           sh -c "$(curl -sSL https://raw.githubusercontent.com/akhilnarang/scripts/master/setup/android_build_env.sh)"
           sudo apt install --fix-missing
 
@@ -77,35 +87,27 @@ jobs:
       - name: Setup KernelSU
         if: github.event.inputs.KERNELSU_CONFIG == 'true'
         run: |
-           cd $GITHUB_WORKSPACE/kernel
-           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.KERNELSU_TAG }}"
-           scripts/config --file "arch/arm64/configs/${{ github.event.inputs.KERNEL_DEFCONFIG }}" -e MODULES -e KPROBES -e HAVE_KPROBES -e KPROBE_EVENTS
-      
+          cd $GITHUB_WORKSPACE/kernel
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ github.event.inputs.KERNELSU_TAG }}"
+          scripts/config --file "arch/arm64/configs/${{ github.event.inputs.KERNEL_DEFCONFIG }}" -e MODULES -e KPROBES -e HAVE_KPROBES -e KPROBE_EVENTS
+
       - name: Make kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel
           export KERNEL_DEFCONFIG=${{ github.event.inputs.KERNEL_DEFCONFIG }}
-          echo "===================Setup Export========================="
           export KERNEL_PATH=$PWD
           export CLANG_PATH=~/clang
           export PATH=${CLANG_PATH}/bin:${PATH}
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export ARCH=arm64
           export SUBARCH=arm64
-          echo "===================Setup Environment Again==================="
-          if [ ! -e "$CLANG_PATH/README.md" ]; then
-            git clone --depth=1 https://github.com/kdrag0n/proton-clang $CLANG_PATH
-          fi
-          sudo apt install --fix-missing
-          echo "=========================Make=========================="
           make O=out CC="ccache clang" CXX="ccache clang++" ARCH=arm64 CROSS_COMPILE=$CLANG_PATH/bin/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$CLANG_PATH/bin/arm-linux-gnueabi- LD=ld.lld $KERNEL_DEFCONFIG
-          # Disable LTO
+          # Disable LTO if runner has less than 16GB RAM
           if [[ $(echo "$(awk '/MemTotal/ {print $2}' /proc/meminfo) < 16000000" | bc -l) -eq 1 ]]; then
               scripts/config --file out/.config -d LTO -d LTO_CLANG -d THINLTO -e LTO_NONE
           fi
-          make O=out CC="ccache clang" CXX="ccache clang++" ARCH=arm64 -j`nproc` CROSS_COMPILE=$CLANG_PATH/bin/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$CLANG_PATH/bin/arm-linux-gnueabi- LD=ld.lld 2>&1 | tee kernel.log
+          make O=out CC="ccache clang" CXX="ccache clang++" ARCH=arm64 -j$(nproc) CROSS_COMPILE=$CLANG_PATH/bin/aarch64-linux-gnu- CROSS_COMPILE_ARM32=$CLANG_PATH/bin/arm-linux-gnueabi- LD=ld.lld 2>&1 | tee kernel.log
 
-      
       - name: Create Anykernel3 file
         run: |
           cd $GITHUB_WORKSPACE/kernel
